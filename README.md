@@ -31,3 +31,6 @@
 ```bash
 pip install colorama
 python todo.py
+
+php -S localhost:8000
+# Открыть http://localhost:8000/todo.php
