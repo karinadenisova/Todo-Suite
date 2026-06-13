@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo List · Продвинутый планировщик</title>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, 'Segoe UI', sans-serif; }
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin: 0; min-height: 100vh; padding: 2rem; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 32px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; }
+        .header { background: #2d3748; color: white; padding: 1.5rem 2rem; }
+        .toolbar { background: #f7fafc; padding: 1rem 2rem; border-bottom: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+        .search-box input { width: 250px; padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 8px; }
+        .filter-group { display: flex; gap: 0.5rem; }
+        .filter-btn { background: #edf2f7; border: none; padding: 0.5rem 1rem; border-radius: 24px; cursor: pointer; }
+        .filter-btn.active { background: #667eea; color: white; }
+        .add-task { background: #f7fafc; padding: 1rem 2rem; display: flex; gap: 1rem; flex-wrap: wrap; border-bottom: 1px solid #e2e8f0; }
+        .add-task input, .add-task select, .add-task button { padding: 0.5rem; border-radius: 8px; border: 1px solid #cbd5e0; }
+        .add-task button { background: #48bb78; color: white; border: none; cursor: pointer; }
+        .task-list { padding: 1.5rem 2rem; }
+        .task-card { background: #f9f9ff; border-radius: 16px; padding: 1rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 1rem; border-left: 6px solid; }
+        .task-card.completed { opacity: 0.6; background: #e2e8f0; text-decoration: line-through; }
+        .task-check { width: 24px; height: 24px; cursor: pointer; }
+        .task-title { flex: 2; font-weight: 500; }
+        .task-desc { flex: 3; color: #4a5568; font-size: 0.9rem; }
+        .task-priority { width: 80px; font-size: 0.8rem; font-weight: bold; text-align: center; padding: 4px; border-radius: 20px; }
+        .task-due { width: 100px; font-size: 0.8rem; }
+        .task-actions button { background: none; border: none; cursor: pointer; font-size: 1.2rem; }
+        .stats { background: #edf2f7; padding: 0.75rem 2rem; font-size: 0.9rem; }
+        .priority-high { border-left-color: #f56565; }
+        .priority-medium { border-left-color: #ed8936; }
+        .priority-low { border-left-color: #48bb78; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header"><h1>📋 Планировщик задач · JS</h1></div>
+    <div class="toolbar">
+        <div class="search-box"><input type="text" id="search" placeholder="Поиск"></div>
+        <div class="filter-group" id="filterGroup">
+            <button class="filter-btn active" data-filter="all">Все</button>
+            <button class="filter-btn" data-filter="active">Активные</button>
+            <button class="filter-btn" data-filter="completed">Выполненные</button>
+            <button class="filter-btn" data-filter="high">🔥 Высокий</button>
+            <button class="filter-btn" data-filter="medium">🟠 Средний</button>
+            <button class="filter-btn" data-filter="low">🟢 Низкий</button>
+        </div>
+        <button id="export">📎 Экспорт CSV</button>
+        <input type="file" id="importFile" accept=".csv" style="display:none">
+        <button id="importBtn">📂 Импорт CSV</button>
+    </div>
+    <div class="add-task">
+        <input type="text" id="newTitle" placeholder="Название">
+        <input type="text" id="newDesc" placeholder="Описание">
+        <select id="newPriority"><option value="high">Высокий</option><option value="medium" selected>Средний</option><option value="low">Низкий</option></select>
+        <input type="date" id="newDue">
+        <button id="addBtn">➕ Добавить</button>
+    </div>
+    <div class="task-list" id="taskList"></div>
+    <div class="stats" id="stats"></div>
+</div>
+<script>
+    let tasks = JSON.parse(localStorage.getItem('tasks') || '[]');
+    let currentFilter = 'all';
+    let searchQuery = '';
+
+    function save() { localStorage.setItem('tasks', JSON.stringify(tasks)); render(); }
+    function render() {
+        let filtered = tasks.filter(t => {
+            if (currentFilter === 'active') return !t.completed;
+            if (currentFilter === 'completed') return t.completed;
+            if (currentFilter === 'high') return t.priority === 'high' && !t.completed;
+            if (currentFilter === 'medium') return t.priority === 'medium' && !t.completed;
+            if (currentFilter === 'low') return t.priority === 'low' && !t.completed;
+            return true;
+        });
+        if (searchQuery) {
+            filtered = filtered.filter(t => t.title.toLowerCase().includes(searchQuery) || t.desc.toLowerCase().includes(searchQuery));
+        }
+        const container = document.getElementById('taskList');
+        container.innerHTML = '';
+        filtered.forEach(t => {
+            const card = document.createElement('div');
+            card.className = `task-card ${t.completed ? 'completed' : ''} priority-${t.priority}`;
+            card.innerHTML = `
+                <input type="checkbox" class="task-check" ${t.completed ? 'checked' : ''} data-id="${t.id}">
+                <div class="task-title">${escapeHtml(t.title)}</div>
+                <div class="task-desc">${escapeHtml(t.desc)}</div>
+                <div class="task-priority">${priorityText(t.priority)}</div>
+                <div class="task-due">${t.due || '—'}</div>
+                <div class="task-actions">
+                    <button data-id="${t.id}" class="editBtn">✏️</button>
+                    <button data-id="${t.id}" class="delBtn">🗑️</button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+        document.querySelectorAll('.task-check').forEach(cb => cb.addEventListener('change', e => {
+            const id = parseInt(e.target.dataset.id);
+            const task = tasks.find(t => t.id === id);
+            if(task) { task.completed = e.target.checked; save(); }
+        }));
+        document.querySelectorAll('.editBtn').forEach(btn => btn.addEventListener('click', e => {
+            const id = parseInt(btn.dataset.id);
+            const task = tasks.find(t => t.id === id);
+            if(task) {
+                const newTitle = prompt('Новое название', task.title);
+                if(newTitle) task.title = newTitle;
+                const newDesc = prompt('Новое описание', task.desc);
+                if(newDesc !== null) task.desc = newDesc;
+                save();
+            }
+        }));
+        document.querySelectorAll('.delBtn').forEach(btn => btn.addEventListener('click', e => {
+            const id = parseInt(btn.dataset.id);
+            tasks = tasks.filter(t => t.id !== id);
+            save();
+        }));
+        const total = tasks.length;
+        const completed = tasks.filter(t => t.completed).length;
+        document.getElementById('stats').innerHTML = `📊 Всего: ${total} | ✅ Выполнено: ${completed} | 🔥 Активных: ${total - completed}`;
+    }
+    function priorityText(p) { return {high:'Высокий',medium:'Средний',low:'Низкий'}[p]; }
+    function escapeHtml(str) { return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
+    document.getElementById('addBtn').addEventListener('click', () => {
+        const title = document.getElementById('newTitle').value.trim();
+        if(!title) return alert('Введите название');
+        const desc = document.getElementById('newDesc').value;
+        const priority = document.getElementById('newPriority').value;
+        const due = document.getElementById('newDue').value;
+        tasks.push({ id: Date.now(), title, desc, priority, due, completed: false });
+        document.getElementById('newTitle').value = '';
+        document.getElementById('newDesc').value = '';
+        document.getElementById('newDue').value = '';
+        save();
+    });
+    document.getElementById('search').addEventListener('input', e => { searchQuery = e.target.value.toLowerCase(); render(); });
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.dataset.filter;
+            render();
+        });
+    });
+    document.getElementById('export').addEventListener('click', () => {
+        let csv = "id,title,description,priority,due,completed\n";
+        tasks.forEach(t => {
+            csv += `${t.id},"${t.title.replace(/"/g, '""')}","${t.desc.replace(/"/g, '""')}",${t.priority},${t.due},${t.completed}\n`;
+        });
+        const blob = new Blob([csv], {type: 'text/csv'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'tasks.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+    document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+    document.getElementById('importFile').addEventListener('change', e => {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const rows = ev.target.result.split('\n').slice(1);
+            const newTasks = [];
+            for(let row of rows) {
+                if(!row.trim()) continue;
+                const parts = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                if(parts && parts.length >= 6) {
+                    newTasks.push({
+                        id: parseInt(parts[0]),
+                        title: parts[1].replace(/^"|"$/g, '').replace(/""/g, '"'),
+                        desc: parts[2].replace(/^"|"$/g, '').replace(/""/g, '"'),
+                        priority: parts[3],
+                        due: parts[4],
+                        completed: parts[5] === 'true'
+                    });
+                }
+            }
+            if(newTasks.length) tasks = newTasks;
+            save();
+        };
+        reader.readAsText(file, 'UTF-8');
+    });
+    render();
+</script>
+</body>
+</html>
