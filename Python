@@ -1,0 +1,250 @@
+
+---
+
+## 🐍 todo.py (Python)
+
+```python
+#!/usr/bin/env python3
+"""
+To-Do лист на Python с цветами, приоритетами, дедлайнами и JSON-хранилищем.
+"""
+
+import json
+import os
+import sys
+from datetime import datetime
+from typing import List, Dict, Optional
+
+try:
+    from colorama import init, Fore, Back, Style
+    init(autoreset=True)
+    HAS_COLOR = True
+except ImportError:
+    HAS_COLOR = False
+    # Заглушки
+    class Fore: RED=GREEN=YELLOW=BLUE=MAGENTA=CYAN=WHITE=RESET=''
+    class Back: BLACK=''
+    class Style: BRIGHT=DIM=NORMAL=''
+
+DATA_FILE = "tasks.json"
+
+class Task:
+    def __init__(self, id: int, title: str, description: str = "",
+                 priority: str = "Средний", due: str = "",
+                 completed: bool = False):
+        self.id = id
+        self.title = title
+        self.description = description
+        self.priority = priority          # Высокий, Средний, Низкий
+        self.due = due                    # строка ISO или пусто
+        self.completed = completed
+
+    def to_dict(self) -> Dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority,
+            "due": self.due,
+            "completed": self.completed
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict):
+        return cls(**data)
+
+    def __str__(self):
+        status = "✅" if self.completed else "⬜"
+        color = Fore.GREEN if self.completed else Fore.WHITE
+        priority_color = {
+            "Высокий": Fore.RED,
+            "Средний": Fore.YELLOW,
+            "Низкий": Fore.CYAN
+        }.get(self.priority, Fore.WHITE)
+        due_str = f" (до {self.due})" if self.due else ""
+        return (f"{color}[{self.id}] {status} {self.title}{due_str} "
+                f"{priority_color}[{self.priority}]{Fore.RESET}")
+
+class TodoManager:
+    def __init__(self):
+        self.tasks: List[Task] = []
+        self.next_id = 1
+        self.load()
+
+    def load(self):
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                self.tasks = [Task.from_dict(t) for t in data.get("tasks", [])]
+                self.next_id = max([t.id for t in self.tasks], default=0) + 1
+
+    def save(self):
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({"tasks": [t.to_dict() for t in self.tasks]}, f, indent=2, ensure_ascii=False)
+
+    def add_task(self, title: str, desc: str = "", priority: str = "Средний", due: str = ""):
+        task = Task(self.next_id, title, desc, priority, due)
+        self.tasks.append(task)
+        self.next_id += 1
+        self.save()
+        print(Fore.GREEN + f"✓ Задача {task.id} добавлена")
+
+    def edit_task(self, task_id: int, **kwargs):
+        task = self.find_by_id(task_id)
+        if task:
+            for key, value in kwargs.items():
+                if hasattr(task, key) and value is not None:
+                    setattr(task, key, value)
+            self.save()
+            print(Fore.GREEN + f"✓ Задача {task_id} обновлена")
+        else:
+            print(Fore.RED + "Ошибка: задача не найдена")
+
+    def toggle_complete(self, task_id: int):
+        task = self.find_by_id(task_id)
+        if task:
+            task.completed = not task.completed
+            self.save()
+            status = "выполнена" if task.completed else "восстановлена"
+            print(Fore.GREEN + f"✓ Задача {task_id} {status}")
+        else:
+            print(Fore.RED + "Ошибка: задача не найдена")
+
+    def delete_task(self, task_id: int):
+        self.tasks = [t for t in self.tasks if t.id != task_id]
+        self.save()
+        print(Fore.GREEN + f"✓ Задача {task_id} удалена")
+
+    def find_by_id(self, task_id: int) -> Optional[Task]:
+        for t in self.tasks:
+            if t.id == task_id:
+                return t
+        return None
+
+    def list_tasks(self, filter_type: str = "all", priority_filter: str = None):
+        filtered = self.tasks.copy()
+        if filter_type == "active":
+            filtered = [t for t in filtered if not t.completed]
+        elif filter_type == "completed":
+            filtered = [t for t in filtered if t.completed]
+        if priority_filter:
+            filtered = [t for t in filtered if t.priority == priority_filter]
+
+        if not filtered:
+            print(Fore.YELLOW + "Нет задач.")
+            return
+
+        # Сортировка: приоритет (Высокий->Средний->Низкий), затем ID
+        priority_order = {"Высокий": 0, "Средний": 1, "Низкий": 2}
+        filtered.sort(key=lambda t: (priority_order.get(t.priority, 3), t.id))
+
+        print(f"\n{Fore.CYAN}═══════════════════════════════════════════════════════{Style.RESET_ALL}")
+        for t in filtered:
+            print(t)
+        print(f"{Fore.CYAN}═══════════════════════════════════════════════════════{Style.RESET_ALL}")
+
+    def search(self, keyword: str):
+        results = [t for t in self.tasks if keyword.lower() in t.title.lower() or keyword.lower() in t.description.lower()]
+        if not results:
+            print(Fore.YELLOW + "Ничего не найдено.")
+        else:
+            print(Fore.CYAN + f"\nНайдено {len(results)} задач(и):")
+            for t in results:
+                print(t)
+
+def input_date(prompt: str) -> str:
+    date_str = input(prompt).strip()
+    if not date_str:
+        return ""
+    try:
+        # Ожидаем YYYY-MM-DD
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
+    except ValueError:
+        print(Fore.RED + "Неверный формат. Используйте ГГГГ-ММ-ДД")
+        return input_date(prompt)
+
+def main():
+    manager = TodoManager()
+    while True:
+        print(f"\n{Fore.BLUE}{Style.BRIGHT}=== TO-DO МЕНЕДЖЕР ==={Style.RESET_ALL}")
+        print("1. Показать все задачи")
+        print("2. Добавить задачу")
+        print("3. Выполнить/восстановить")
+        print("4. Редактировать задачу")
+        print("5. Удалить задачу")
+        print("6. Фильтровать (активные/выполненные/по приоритету)")
+        print("7. Поиск")
+        print("0. Выход")
+        choice = input("Выберите действие: ").strip()
+
+        if choice == "1":
+            manager.list_tasks()
+        elif choice == "2":
+            title = input("Название: ").strip()
+            if not title:
+                print(Fore.RED + "Название обязательно")
+                continue
+            desc = input("Описание (необязательно): ").strip()
+            print("Приоритет: 1-Высокий, 2-Средний (по умолч.), 3-Низкий")
+            prio_choice = input("Выберите: ").strip()
+            priority = {"1": "Высокий", "2": "Средний", "3": "Низкий"}.get(prio_choice, "Средний")
+            due = input_date("Дедлайн (ГГГГ-ММ-ДД, оставьте пустым если нет): ")
+            manager.add_task(title, desc, priority, due)
+        elif choice == "3":
+            try:
+                tid = int(input("ID задачи: "))
+            except ValueError:
+                print(Fore.RED + "Неверный ID")
+                continue
+            manager.toggle_complete(tid)
+        elif choice == "4":
+            try:
+                tid = int(input("ID задачи: "))
+            except ValueError:
+                continue
+            task = manager.find_by_id(tid)
+            if not task:
+                print(Fore.RED + "Не найдено")
+                continue
+            new_title = input(f"Новое название (было: {task.title}): ").strip() or None
+            new_desc = input(f"Новое описание (было: {task.description}): ").strip() or None
+            new_priority = None
+            print("Приоритет (Enter без изменений): 1-Высокий, 2-Средний, 3-Низкий")
+            prio_choice = input("Выберите: ").strip()
+            if prio_choice in ("1","2","3"):
+                new_priority = {"1":"Высокий","2":"Средний","3":"Низкий"}[prio_choice]
+            new_due = input_date(f"Новый дедлайн (было: {task.due}): ") or None
+            manager.edit_task(tid, title=new_title, description=new_desc, priority=new_priority, due=new_due)
+        elif choice == "5":
+            try:
+                tid = int(input("ID задачи для удаления: "))
+            except ValueError:
+                continue
+            manager.delete_task(tid)
+        elif choice == "6":
+            print("Фильтр: 1-Все, 2-Активные, 3-Выполненные, 4-По приоритету")
+            fchoice = input("Выберите: ").strip()
+            ftype = "all"
+            if fchoice == "2":
+                ftype = "active"
+            elif fchoice == "3":
+                ftype = "completed"
+            elif fchoice == "4":
+                pchoice = input("Приоритет (1-Высокий,2-Средний,3-Низкий): ").strip()
+                prio_map = {"1":"Высокий","2":"Средний","3":"Низкий"}
+                pfilter = prio_map.get(pchoice)
+                manager.list_tasks(filter_type="all", priority_filter=pfilter)
+                continue
+            manager.list_tasks(filter_type=ftype)
+        elif choice == "7":
+            keyword = input("Поисковое слово: ").strip()
+            manager.search(keyword)
+        elif choice == "0":
+            print("До свидания!")
+            break
+        else:
+            print(Fore.RED + "Неверный выбор")
+
+if __name__ == "__main__":
+    main()
